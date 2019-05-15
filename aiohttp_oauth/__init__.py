@@ -17,16 +17,13 @@ async def default_auth_header_handler(request):
 
 class Authenticator:
 
-    def __init__(self, *,
-                 app,
-                 handler,
+    def __init__(self, handler, *,
                  auth_callback=None,
                  oauth_url=None,
                  whitelist_handlers=None,
                  oauth_handler=None,
                  auth_header_handler=None,
                  **kwargs):
-        self.app = app
         self.handler = handler
         self.auth_callback = auth_callback
         self.oauth_url = oauth_url or DEFAULT_OAUTH_URL
@@ -41,7 +38,14 @@ class Authenticator:
         self.auth_header_handler = auth_header_handler
 
     async def __call__(self, request, *args, **kwargs):
-        return await self.auth_handler(request, *args, **kwargs)
+        # We're passing request twice here as
+        # this allows custom implementations to override all
+        # arguments passed to a view, for example if your view
+        # signature is (something, request) you may call:
+        # await self.auth_handler(
+        #   request, something, request, *args, **kwargs)
+        # and the handler will be called with that signature.
+        return await self.auth_handler(request, request, *args, **kwargs)
 
     async def handle_oauth_callback(self, request, session):
         oauth_handler = self.oauth_handler
@@ -96,11 +100,11 @@ class Authenticator:
 
         if user:  # already authenticated
             request['user'] = user
-            return await handler(request, *args, **kwargs)
+            return await handler(*args, **kwargs)
 
         final_handler = request.match_info.route.handler
         if final_handler in whitelist_handlers:  # dont need auth
-            return await handler(request, *args, **kwargs)
+            return await handler(*args, **kwargs)
 
         # Somtimes there is an extra / somewhere, so we strip it out
         path = request.path.replace('//', '/')
@@ -125,7 +129,6 @@ def oauth_middleware(*, auth_callback=None,
                      **kwargs):
     async def middleware_factory(app, handler):
         return Authenticator(
-            app,
             handler,
             auth_callback=auth_callback,
             oauth_url=oauth_url,
